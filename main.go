@@ -61,6 +61,17 @@ func ParseConfig() (*Config, error) {
 	return out, nil
 }
 
+func action(c *cli.Context) error {
+	verbose := c.Bool("verbose")
+	if len(c.Args()) != 2 {
+		return errors.New("requires 2 commit reference")
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "start verifydog with verbose mode")
+	}
+	return verify(verbose, c.Args())
+}
+
 func mainInternal() error {
 	app := cli.NewApp()
 	app.Name = "verifydog"
@@ -72,16 +83,7 @@ func mainInternal() error {
 			Usage: "show git command output",
 		},
 	}
-	app.Action = func(c *cli.Context) error {
-		verbose := c.Bool("verbose")
-		if len(c.Args()) != 2 {
-			return errors.New("requires 2 commit reference")
-		}
-		if verbose {
-			fmt.Fprintf(os.Stderr, "start verifydog with verbose mode")
-		}
-		return verify(verbose, c.Args())
-	}
+	app.Action = action
 	return app.Run(os.Args)
 }
 
