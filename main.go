@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -11,12 +10,17 @@ import (
 )
 
 func verify() error {
-	fmt.Println(os.Args)
-	path, err := exec.LookPath(os.Args[1])
+	path, err := exec.LookPath("git")
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(path, os.Args[1:], os.Environ())
+	args := []string{
+		"git",
+		"diff",
+		os.Args[1],
+		os.Args[2],
+	}
+	return syscall.Exec(path, args, os.Environ())
 }
 
 func mainInternal() error {
