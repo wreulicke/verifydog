@@ -16,7 +16,7 @@ func verify() error {
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(path, "", os.Environ())
+	return syscall.Exec(path, os.Args[1:], os.Environ())
 }
 
 func mainInternal() error {
