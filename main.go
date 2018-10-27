@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	"syscall"
 
 	cli "gopkg.in/urfave/cli.v1"
 	yaml "gopkg.in/yaml.v2"
@@ -18,29 +20,24 @@ func verify() error {
 
 	}
 
-	for _, v := range cfg.Verfiers {
-		path, err := exec.LookPath("git")
+	status := map[string]bool{}
+	for k, v := range cfg.Verifiers {
+		cmd := exec.Command("git", "diff", os.Args[1], os.Args[2], "--", v)
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		err := cmd.Run()
 		if err != nil {
 			return err
 		}
-		args := []string{
-			"git",
-			"diff",
-			os.Args[1],
-			os.Args[2],
-			"--",
-			v,
-		}
-		err = syscall.Exec(path, args, os.Environ())
-		if err != nil {
-			return err
-		}
+		status[k] = len(stdout.String()) != 0
 	}
+	b, _ := json.Marshal(status)
+	fmt.Println(string(b))
 	return nil
 }
 
 type Config struct {
-	Verfiers map[string]string
+	Verifiers map[string]string
 }
 
 func ParseConfig() (*Config, error) {
