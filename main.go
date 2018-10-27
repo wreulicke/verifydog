@@ -1,26 +1,58 @@
 package main
 
 import (
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"syscall"
 
 	cli "gopkg.in/urfave/cli.v1"
+	yaml "gopkg.in/yaml.v2"
 )
 
 func verify() error {
-	path, err := exec.LookPath("git")
+	cfg, err := ParseConfig()
 	if err != nil {
 		return err
+
 	}
-	args := []string{
-		"git",
-		"diff",
-		os.Args[1],
-		os.Args[2],
+
+	for _, v := range cfg.Verfiers {
+		path, err := exec.LookPath("git")
+		if err != nil {
+			return err
+		}
+		args := []string{
+			"git",
+			"diff",
+			os.Args[1],
+			os.Args[2],
+			"--",
+			v,
+		}
+		err = syscall.Exec(path, args, os.Environ())
+		if err != nil {
+			return err
+		}
 	}
-	return syscall.Exec(path, args, os.Environ())
+	return nil
+}
+
+type Config struct {
+	Verfiers map[string]string
+}
+
+func ParseConfig() (*Config, error) {
+	yml, err := ioutil.ReadFile(".verifydog.yml")
+	if err != nil {
+		return nil, err
+	}
+	out := &Config{}
+	if err := yaml.Unmarshal(yml, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func mainInternal() error {
