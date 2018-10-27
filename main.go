@@ -9,25 +9,34 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/pkg/errors"
+
 	cli "gopkg.in/urfave/cli.v1"
 	yaml "gopkg.in/yaml.v2"
 )
 
-func verify() error {
+func verify(verbose bool, args []string) error {
 	cfg, err := ParseConfig()
 	if err != nil {
 		return err
-
 	}
 
 	status := map[string]bool{}
 	for k, v := range cfg.Verifiers {
-		cmd := exec.Command("git", "diff", os.Args[1], os.Args[2], "--", v)
+		cmd := exec.Command("git", "diff", "--color", args[0], args[1], "--", v)
 		var stdout bytes.Buffer
+		var stderr bytes.Buffer
 		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 		err := cmd.Run()
 		if err != nil {
+			if verbose {
+				fmt.Fprintf(os.Stderr, stderr.String())
+			}
 			return err
+		}
+		if verbose {
+			fmt.Fprintf(os.Stderr, stdout.String())
 		}
 		status[k] = len(stdout.String()) != 0
 	}
@@ -56,8 +65,22 @@ func mainInternal() error {
 	app := cli.NewApp()
 	app.Name = "verifydog"
 	app.Usage = "verify diff between versions"
+	app.HideVersion = true
+	app.Flags = []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "verbose",
+			Usage: "show git command output",
+		},
+	}
 	app.Action = func(c *cli.Context) error {
-		return verify()
+		verbose := c.Bool("verbose")
+		if len(c.Args()) != 2 {
+			return errors.New("requires 2 commit reference")
+		}
+		if verbose {
+			fmt.Fprintf(os.Stderr, "start verifydog with verbose mode")
+		}
+		return verify(verbose, c.Args())
 	}
 	return app.Run(os.Args)
 }
