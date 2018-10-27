@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
+	"strings"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/mattn/go-colorable"
 	"github.com/pkg/errors"
 
 	cli "gopkg.in/urfave/cli.v1"
@@ -28,17 +32,30 @@ func verify(verbose bool, args []string) error {
 		var stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
+		if verbose {
+			log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
+		}
 		err := cmd.Run()
 		if err != nil {
-			if verbose {
-				fmt.Fprintf(os.Stderr, stderr.String())
+			b := stderr.Bytes()
+			if verbose && len(b) != 0 {
+				errOut := colorable.NewColorableStderr()
+				errOut.Write(b)
+				fmt.Fprintln(errOut)
 			}
-			return err
+			line, _, readErr := bufio.NewReader(bytes.NewReader(b)).ReadLine()
+			if readErr != nil {
+				return errors.Wrap(err, "git diff is failed. cannot get deitals.")
+			}
+			return errors.Errorf("git diff is failed. message: `%s`", string(line))
 		}
-		if verbose {
-			fmt.Fprintf(os.Stderr, stdout.String())
+		b := stdout.Bytes()
+		if verbose && len(b) != 0 {
+			errOut := colorable.NewColorableStderr()
+			errOut.Write(stdout.Bytes())
+			fmt.Fprintln(errOut)
 		}
-		status[k] = len(stdout.String()) != 0
+		status[k] = len(b) != 0
 	}
 	b, _ := json.Marshal(status)
 	fmt.Println(string(b))
@@ -67,7 +84,7 @@ func action(c *cli.Context) error {
 		return errors.New("requires 2 commit reference")
 	}
 	if verbose {
-		fmt.Fprintf(os.Stderr, "start verifydog with verbose mode")
+		log.Info("start verifydog with verbose mode")
 	}
 	return verify(verbose, c.Args())
 }
@@ -88,6 +105,12 @@ func mainInternal() error {
 }
 
 func main() {
+	log.SetOutput(colorable.NewColorableStderr())
+	f := log.TextFormatter{
+		ForceColors:   true,
+		FullTimestamp: true,
+	}
+	log.SetFormatter(&f)
 	err := mainInternal()
 	if err != nil {
 		log.Fatal(err)
