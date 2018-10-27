@@ -19,6 +19,42 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+func history(verbose bool, args []string) error {
+	cfg, err := ParseConfig()
+	if err != nil {
+		return err
+	}
+
+	for _, v := range cfg.Verifiers {
+		fmt.Printf("%s -->\r\n", v)
+		cmd := exec.Command("git", "log", "--color", args[0], args[1], "--", v)
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if verbose {
+			log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
+		}
+		err := cmd.Run()
+		if err != nil {
+			b := stderr.Bytes()
+			if verbose && len(b) != 0 {
+				errOut := colorable.NewColorableStderr()
+				errOut.Write(b)
+				fmt.Fprintln(errOut)
+			}
+			line, _, readErr := bufio.NewReader(bytes.NewReader(b)).ReadLine()
+			if readErr != nil {
+				return errors.Wrap(err, "git diff is failed. cannot get deitals.")
+			}
+			return errors.Errorf("git diff is failed. message: `%s`", string(line))
+		}
+		fmt.Println(stdout.String())
+		fmt.Printf("<-- %s\r\n", v)
+	}
+	return nil
+}
+
 func verify(verbose bool, args []string) error {
 	cfg, err := ParseConfig()
 	if err != nil {
@@ -78,10 +114,21 @@ func ParseConfig() (*Config, error) {
 	return out, nil
 }
 
-func action(c *cli.Context) error {
+func historyAction(c *cli.Context) error {
 	verbose := c.Bool("verbose")
 	if len(c.Args()) != 2 {
-		return errors.New("requires 2 commit reference")
+		return errors.New("requires 2 only commit reference")
+	}
+	if verbose {
+		log.Info("start verifydog with verbose mode")
+	}
+	return history(verbose, c.Args())
+}
+
+func verifyAction(c *cli.Context) error {
+	verbose := c.Bool("verbose")
+	if len(c.Args()) != 2 {
+		return errors.New("require 2 only commit reference")
 	}
 	if verbose {
 		log.Info("start verifydog with verbose mode")
@@ -97,10 +144,23 @@ func mainInternal() error {
 	app.Flags = []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "verbose",
-			Usage: "show git command output",
+			Usage: "verbose mode",
 		},
 	}
-	app.Action = action
+	app.Action = verifyAction
+	app.Commands = []cli.Command{
+		cli.Command{
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:  "verbose",
+					Usage: "verbose mode",
+				},
+			},
+			Name:        "history",
+			Description: "show history",
+			Action:      historyAction,
+		},
+	}
 	return app.Run(os.Args)
 }
 
