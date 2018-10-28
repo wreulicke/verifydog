@@ -20,7 +20,7 @@ import (
 )
 
 func history(verbose bool, args []string) error {
-	cfg, err := ParseConfig()
+	cfg, err := parseConfig()
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func history(verbose bool, args []string) error {
 }
 
 func verify(verbose bool, args []string) error {
-	cfg, err := ParseConfig()
+	cfg, err := parseConfig()
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ type Config struct {
 	Verifiers map[string]string
 }
 
-func ParseConfig() (*Config, error) {
+func parseConfig() (*Config, error) {
 	yml, err := ioutil.ReadFile(".verifydog.yml")
 	if err != nil {
 		return nil, err
