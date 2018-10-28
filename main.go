@@ -19,6 +19,8 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+var version string
+
 func history(verbose bool, args []string) error {
 	cfg, err := parseConfig()
 	if err != nil {
@@ -140,7 +142,7 @@ func mainInternal() error {
 	app := cli.NewApp()
 	app.Name = "verifydog"
 	app.Usage = "verify diff between versions"
-	app.HideVersion = true
+	app.Version = version
 	app.Flags = []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "verbose",

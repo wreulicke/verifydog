@@ -1,0 +1,29 @@
+version: 2
+jobs:
+  build:
+    working_directory: /go/src/github.com/wrelicke/verifydog
+    docker:
+      - image: golang:1.11-stretch
+    steps:
+      - checkout
+      - run:
+          name: Setup
+          command: make setup-for-ci install
+      - run:
+          name: Run tests
+          command: make test
+      - deploy:
+          command: |
+            if [ -n "${CIRCLE_TAG}" ]; then
+              make build-all release
+            fi
+workflows:
+  version: 2
+  builds:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
