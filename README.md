@@ -3,9 +3,13 @@ Verfifydog
 
 Git-based diff verify tool.
 
+## Install 
+
+You can get [here](https://github.com/wreulicke/verifydog/releases).
+
 ## Usage
 
-## verify diff between commits
+### verify diff between commits
 
 ```bash
 $ cat .verifydog.yml
