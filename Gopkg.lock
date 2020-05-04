@@ -34,29 +34,18 @@
   version = "v0.8.0"
 
 [[projects]]
-  digest = "1:69b1cc331fca23d702bd72f860c6a647afd0aa9fcbc1d0659b1365e26546dd70"
+  digest = "1:05eebdd5727fea23083fce0d98d307d70c86baed644178e81608aaa9f09ea469"
   name = "github.com/sirupsen/logrus"
   packages = ["."]
   pruneopts = "UT"
-  revision = "bcd833dfe83d3cebad139e4a29ed79cb2318bf95"
-  version = "v1.2.0"
+  revision = "60c74ad9be0d874af0ab0daef6ab07c5c5911f0d"
+  version = "v1.6.0"
 
 [[projects]]
   branch = "master"
-  digest = "1:3f3a05ae0b95893d90b9b3b5afdb79a9b3d96e4e36e099d841ae602e4aca0da8"
-  name = "golang.org/x/crypto"
-  packages = ["ssh/terminal"]
-  pruneopts = "UT"
-  revision = "e84da0312774c21d64ee2317962ef669b27ffb41"
-
-[[projects]]
-  branch = "master"
-  digest = "1:d2605ed96ca0244a457fa8e6c37d5c370ce98ea09dcc21e5e07d967bfcb78878"
+  digest = "1:f22e437d9328275884d0ae018ed0de4c280871c944a5ab332aa37fd71fb5801b"
   name = "golang.org/x/sys"
-  packages = [
-    "unix",
-    "windows",
-  ]
+  packages = ["unix"]
   pruneopts = "UT"
   revision = "95b1ffbd15a57cc5abb3f04402b9e8ec0016a52c"
 
