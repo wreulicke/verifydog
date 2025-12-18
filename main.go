@@ -23,15 +23,15 @@ type Config struct {
 	Verifiers map[string]string
 }
 
-// gitCommandResult holds the output of a git command execution
+// gitCommandResult holds the output of a git command execution.
 type gitCommandResult struct {
 	stdout bytes.Buffer
 	stderr bytes.Buffer
 }
 
-// executeGitCommand runs a git command and handles verbose logging
-func executeGitCommand(verbose bool, args ...string) (*gitCommandResult, error) {
-	cmd := exec.Command("git", args...)
+// executeGitCommand runs a git command and handles verbose logging.
+func executeGitCommand(ctx context.Context, verbose bool, args ...string) (*gitCommandResult, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	result := &gitCommandResult{}
 
 	cmd.Stdout = &result.stdout
@@ -41,10 +41,16 @@ func executeGitCommand(verbose bool, args ...string) (*gitCommandResult, error) 
 		log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
 	}
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if err != nil {
 		if verbose && result.stderr.Len() > 0 {
 			errOut := colorable.NewColorableStderr()
-			errOut.Write(result.stderr.Bytes())
+
+			_, writeErr := errOut.Write(result.stderr.Bytes())
+			if writeErr != nil {
+				log.Warnf("failed to write stderr: %v", writeErr)
+			}
+
 			fmt.Fprintln(errOut)
 		}
 
@@ -59,28 +65,28 @@ func executeGitCommand(verbose bool, args ...string) (*gitCommandResult, error) 
 	return result, nil
 }
 
-func history(verbose bool, args []string) error {
+func history(ctx context.Context, verbose bool, args []string) error {
 	cfg, err := parseConfig()
 	if err != nil {
 		return err
 	}
 
 	for _, v := range cfg.Verifiers {
-		fmt.Printf("%s -->\r\n", v)
+		log.Infof("%s -->", v)
 
-		result, err := executeGitCommand(verbose, "log", "--color", args[0], args[1], "--", v)
+		result, err := executeGitCommand(ctx, verbose, "log", "--color", args[0], args[1], "--", v)
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(result.stdout.String())
-		fmt.Printf("<-- %s\r\n", v)
+		log.Info(result.stdout.String())
+		log.Infof("<-- %s", v)
 	}
 
 	return nil
 }
 
-func verify(verbose bool, args []string) error {
+func verify(ctx context.Context, verbose bool, args []string) error {
 	cfg, err := parseConfig()
 	if err != nil {
 		return err
@@ -89,22 +95,31 @@ func verify(verbose bool, args []string) error {
 	status := map[string]bool{}
 
 	for k, v := range cfg.Verifiers {
-		result, err := executeGitCommand(verbose, "diff", "--color", args[0], args[1], "--", v)
+		result, err := executeGitCommand(ctx, verbose, "diff", "--color", args[0], args[1], "--", v)
 		if err != nil {
 			return err
 		}
 
 		if verbose && result.stdout.Len() > 0 {
 			errOut := colorable.NewColorableStderr()
-			errOut.Write(result.stdout.Bytes())
+
+			_, writeErr := errOut.Write(result.stdout.Bytes())
+			if writeErr != nil {
+				log.Warnf("failed to write stdout: %v", writeErr)
+			}
+
 			fmt.Fprintln(errOut)
 		}
 
 		status[k] = result.stdout.Len() > 0
 	}
 
-	b, _ := json.Marshal(status)
-	fmt.Println(string(b))
+	b, err := json.Marshal(status)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal status")
+	}
+
+	log.Info(string(b))
 
 	return nil
 }
@@ -112,12 +127,14 @@ func verify(verbose bool, args []string) error {
 func parseConfig() (*Config, error) {
 	yml, err := os.ReadFile(".verifydog.yml")
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to read config file")
 	}
 
 	out := &Config{}
-	if err := yaml.Unmarshal(yml, out); err != nil {
-		return nil, err
+
+	err = yaml.Unmarshal(yml, out)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal config")
 	}
 
 	return out, nil
@@ -133,7 +150,7 @@ func historyAction(ctx context.Context, cmd *cli.Command) error {
 		log.Info("start verifydog with verbose mode")
 	}
 
-	return history(verbose, cmd.Args().Slice())
+	return history(ctx, verbose, cmd.Args().Slice())
 }
 
 func verifyAction(ctx context.Context, cmd *cli.Command) error {
@@ -146,7 +163,7 @@ func verifyAction(ctx context.Context, cmd *cli.Command) error {
 		log.Info("start verifydog with verbose mode")
 	}
 
-	return verify(verbose, cmd.Args().Slice())
+	return verify(ctx, verbose, cmd.Args().Slice())
 }
 
 func mainInternal() error {
@@ -176,7 +193,12 @@ func mainInternal() error {
 		},
 	}
 
-	return cmd.Run(context.Background(), os.Args)
+	err := cmd.Run(context.Background(), os.Args)
+	if err != nil {
+		return errors.Wrap(err, "command execution failed")
+	}
+
+	return nil
 }
 
 func main() {
