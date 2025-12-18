@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -14,8 +15,8 @@ import (
 
 	"github.com/mattn/go-colorable"
 	"github.com/pkg/errors"
+	"github.com/urfave/cli/v3"
 
-	cli "gopkg.in/urfave/cli.v1"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -116,54 +117,55 @@ func parseConfig() (*Config, error) {
 	return out, nil
 }
 
-func historyAction(c *cli.Context) error {
-	verbose := c.Bool("verbose")
-	if len(c.Args()) != 2 {
+func historyAction(ctx context.Context, cmd *cli.Command) error {
+	verbose := cmd.Bool("verbose")
+	if cmd.Args().Len() != 2 {
 		return errors.New("requires 2 only commit reference")
 	}
 	if verbose {
 		log.Info("start verifydog with verbose mode")
 	}
-	return history(verbose, c.Args())
+	return history(verbose, cmd.Args().Slice())
 }
 
-func verifyAction(c *cli.Context) error {
-	verbose := c.Bool("verbose")
-	if len(c.Args()) != 2 {
+func verifyAction(ctx context.Context, cmd *cli.Command) error {
+	verbose := cmd.Bool("verbose")
+	if cmd.Args().Len() != 2 {
 		return errors.New("require 2 only commit reference")
 	}
 	if verbose {
 		log.Info("start verifydog with verbose mode")
 	}
-	return verify(verbose, c.Args())
+	return verify(verbose, cmd.Args().Slice())
 }
 
 func mainInternal() error {
-	app := cli.NewApp()
-	app.Name = "verifydog"
-	app.Usage = "verify diff between versions"
-	app.Version = version
-	app.Flags = []cli.Flag{
-		&cli.BoolFlag{
-			Name:  "verbose",
-			Usage: "verbose mode",
-		},
-	}
-	app.Action = verifyAction
-	app.Commands = []cli.Command{
-		cli.Command{
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:  "verbose",
-					Usage: "verbose mode",
-				},
+	cmd := &cli.Command{
+		Name:    "verifydog",
+		Usage:   "verify diff between versions",
+		Version: version,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "verbose",
+				Usage: "verbose mode",
 			},
-			Name:        "history",
-			Description: "show history",
-			Action:      historyAction,
+		},
+		Action: verifyAction,
+		Commands: []*cli.Command{
+			{
+				Name:        "history",
+				Description: "show history",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "verbose",
+						Usage: "verbose mode",
+					},
+				},
+				Action: historyAction,
+			},
 		},
 	}
-	return app.Run(os.Args)
+	return cmd.Run(context.Background(), os.Args)
 }
 
 func main() {
