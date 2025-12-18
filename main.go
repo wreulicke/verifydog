@@ -3,167 +3,202 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/mattn/go-colorable"
 	"github.com/pkg/errors"
-
-	cli "gopkg.in/urfave/cli.v1"
+	log "github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v3"
 	yaml "gopkg.in/yaml.v2"
 )
 
 var version string
 
-func history(verbose bool, args []string) error {
+type Config struct {
+	Verifiers map[string]string
+}
+
+// gitCommandResult holds the output of a git command execution.
+type gitCommandResult struct {
+	stdout bytes.Buffer
+	stderr bytes.Buffer
+}
+
+// executeGitCommand runs a git command and handles verbose logging.
+func executeGitCommand(ctx context.Context, verbose bool, args ...string) (*gitCommandResult, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	result := &gitCommandResult{}
+
+	cmd.Stdout = &result.stdout
+	cmd.Stderr = &result.stderr
+
+	if verbose {
+		log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
+	}
+
+	err := cmd.Run()
+	if err != nil {
+		if verbose && result.stderr.Len() > 0 {
+			errOut := colorable.NewColorableStderr()
+
+			_, writeErr := errOut.Write(result.stderr.Bytes())
+			if writeErr != nil {
+				log.Warnf("failed to write stderr: %v", writeErr)
+			}
+
+			fmt.Fprintln(errOut)
+		}
+
+		line, _, readErr := bufio.NewReader(&result.stderr).ReadLine()
+		if readErr != nil {
+			return nil, errors.Wrap(err, "git command failed. cannot get details.")
+		}
+
+		return nil, errors.Errorf("git command failed. message: `%s`", string(line))
+	}
+
+	return result, nil
+}
+
+func history(ctx context.Context, verbose bool, args []string) error {
 	cfg, err := parseConfig()
 	if err != nil {
 		return err
 	}
 
 	for _, v := range cfg.Verifiers {
-		fmt.Printf("%s -->\r\n", v)
-		cmd := exec.Command("git", "log", "--color", args[0], args[1], "--", v)
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if verbose {
-			log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
-		}
-		err := cmd.Run()
+		log.Infof("%s -->", v)
+
+		result, err := executeGitCommand(ctx, verbose, "log", "--color", args[0], args[1], "--", v)
 		if err != nil {
-			b := stderr.Bytes()
-			if verbose && len(b) != 0 {
-				errOut := colorable.NewColorableStderr()
-				errOut.Write(b)
-				fmt.Fprintln(errOut)
-			}
-			line, _, readErr := bufio.NewReader(bytes.NewReader(b)).ReadLine()
-			if readErr != nil {
-				return errors.Wrap(err, "git diff is failed. cannot get deitals.")
-			}
-			return errors.Errorf("git diff is failed. message: `%s`", string(line))
+			return err
 		}
-		fmt.Println(stdout.String())
-		fmt.Printf("<-- %s\r\n", v)
+
+		log.Info(result.stdout.String())
+		log.Infof("<-- %s", v)
 	}
+
 	return nil
 }
 
-func verify(verbose bool, args []string) error {
+func verify(ctx context.Context, verbose bool, args []string) error {
 	cfg, err := parseConfig()
 	if err != nil {
 		return err
 	}
 
 	status := map[string]bool{}
+
 	for k, v := range cfg.Verifiers {
-		cmd := exec.Command("git", "diff", "--color", args[0], args[1], "--", v)
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if verbose {
-			log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
-		}
-		err := cmd.Run()
+		result, err := executeGitCommand(ctx, verbose, "diff", "--color", args[0], args[1], "--", v)
 		if err != nil {
-			b := stderr.Bytes()
-			if verbose && len(b) != 0 {
-				errOut := colorable.NewColorableStderr()
-				errOut.Write(b)
-				fmt.Fprintln(errOut)
-			}
-			line, _, readErr := bufio.NewReader(bytes.NewReader(b)).ReadLine()
-			if readErr != nil {
-				return errors.Wrap(err, "git diff is failed. cannot get deitals.")
-			}
-			return errors.Errorf("git diff is failed. message: `%s`", string(line))
+			return err
 		}
-		b := stdout.Bytes()
-		if verbose && len(b) != 0 {
+
+		if verbose && result.stdout.Len() > 0 {
 			errOut := colorable.NewColorableStderr()
-			errOut.Write(stdout.Bytes())
+
+			_, writeErr := errOut.Write(result.stdout.Bytes())
+			if writeErr != nil {
+				log.Warnf("failed to write stdout: %v", writeErr)
+			}
+
 			fmt.Fprintln(errOut)
 		}
-		status[k] = len(b) != 0
+
+		status[k] = result.stdout.Len() > 0
 	}
-	b, _ := json.Marshal(status)
-	fmt.Println(string(b))
+
+	b, err := json.Marshal(status)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal status")
+	}
+
+	log.Info(string(b))
+
 	return nil
 }
 
-type Config struct {
-	Verifiers map[string]string
-}
-
 func parseConfig() (*Config, error) {
-	yml, err := ioutil.ReadFile(".verifydog.yml")
+	yml, err := os.ReadFile(".verifydog.yml")
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to read config file")
 	}
+
 	out := &Config{}
-	if err := yaml.Unmarshal(yml, out); err != nil {
-		return nil, err
+
+	err = yaml.Unmarshal(yml, out)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal config")
 	}
+
 	return out, nil
 }
 
-func historyAction(c *cli.Context) error {
-	verbose := c.Bool("verbose")
-	if len(c.Args()) != 2 {
+func historyAction(ctx context.Context, cmd *cli.Command) error {
+	verbose := cmd.Bool("verbose")
+	if cmd.Args().Len() != 2 {
 		return errors.New("requires 2 only commit reference")
 	}
+
 	if verbose {
 		log.Info("start verifydog with verbose mode")
 	}
-	return history(verbose, c.Args())
+
+	return history(ctx, verbose, cmd.Args().Slice())
 }
 
-func verifyAction(c *cli.Context) error {
-	verbose := c.Bool("verbose")
-	if len(c.Args()) != 2 {
+func verifyAction(ctx context.Context, cmd *cli.Command) error {
+	verbose := cmd.Bool("verbose")
+	if cmd.Args().Len() != 2 {
 		return errors.New("require 2 only commit reference")
 	}
+
 	if verbose {
 		log.Info("start verifydog with verbose mode")
 	}
-	return verify(verbose, c.Args())
+
+	return verify(ctx, verbose, cmd.Args().Slice())
 }
 
 func mainInternal() error {
-	app := cli.NewApp()
-	app.Name = "verifydog"
-	app.Usage = "verify diff between versions"
-	app.Version = version
-	app.Flags = []cli.Flag{
-		&cli.BoolFlag{
-			Name:  "verbose",
-			Usage: "verbose mode",
-		},
-	}
-	app.Action = verifyAction
-	app.Commands = []cli.Command{
-		cli.Command{
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:  "verbose",
-					Usage: "verbose mode",
-				},
+	cmd := &cli.Command{
+		Name:    "verifydog",
+		Usage:   "verify diff between versions",
+		Version: version,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "verbose",
+				Usage: "verbose mode",
 			},
-			Name:        "history",
-			Description: "show history",
-			Action:      historyAction,
+		},
+		Action: verifyAction,
+		Commands: []*cli.Command{
+			{
+				Name:        "history",
+				Description: "show history",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "verbose",
+						Usage: "verbose mode",
+					},
+				},
+				Action: historyAction,
+			},
 		},
 	}
-	return app.Run(os.Args)
+
+	err := cmd.Run(context.Background(), os.Args)
+	if err != nil {
+		return errors.Wrap(err, "command execution failed")
+	}
+
+	return nil
 }
 
 func main() {
@@ -173,6 +208,7 @@ func main() {
 		FullTimestamp: true,
 	}
 	log.SetFormatter(&f)
+
 	err := mainInternal()
 	if err != nil {
 		log.Fatal(err)
