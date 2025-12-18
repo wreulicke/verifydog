@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -20,6 +19,46 @@ import (
 
 var version string
 
+type Config struct {
+	Verifiers map[string]string
+}
+
+// gitCommandResult holds the output of a git command execution
+type gitCommandResult struct {
+	stdout bytes.Buffer
+	stderr bytes.Buffer
+}
+
+// executeGitCommand runs a git command and handles verbose logging
+func executeGitCommand(verbose bool, args ...string) (*gitCommandResult, error) {
+	cmd := exec.Command("git", args...)
+	result := &gitCommandResult{}
+
+	cmd.Stdout = &result.stdout
+	cmd.Stderr = &result.stderr
+
+	if verbose {
+		log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
+	}
+
+	if err := cmd.Run(); err != nil {
+		if verbose && result.stderr.Len() > 0 {
+			errOut := colorable.NewColorableStderr()
+			errOut.Write(result.stderr.Bytes())
+			fmt.Fprintln(errOut)
+		}
+
+		line, _, readErr := bufio.NewReader(&result.stderr).ReadLine()
+		if readErr != nil {
+			return nil, errors.Wrap(err, "git command failed. cannot get details.")
+		}
+
+		return nil, errors.Errorf("git command failed. message: `%s`", string(line))
+	}
+
+	return result, nil
+}
+
 func history(verbose bool, args []string) error {
 	cfg, err := parseConfig()
 	if err != nil {
@@ -28,38 +67,13 @@ func history(verbose bool, args []string) error {
 
 	for _, v := range cfg.Verifiers {
 		fmt.Printf("%s -->\r\n", v)
-		cmd := exec.Command("git", "log", "--color", args[0], args[1], "--", v)
 
-		var (
-			stdout bytes.Buffer
-			stderr bytes.Buffer
-		)
-
-		cmd.Stdout = &stdout
-
-		cmd.Stderr = &stderr
-		if verbose {
-			log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
-		}
-
-		err := cmd.Run()
+		result, err := executeGitCommand(verbose, "log", "--color", args[0], args[1], "--", v)
 		if err != nil {
-			b := stderr.Bytes()
-			if verbose && len(b) != 0 {
-				errOut := colorable.NewColorableStderr()
-				errOut.Write(b)
-				fmt.Fprintln(errOut)
-			}
-
-			line, _, readErr := bufio.NewReader(bytes.NewReader(b)).ReadLine()
-			if readErr != nil {
-				return errors.Wrap(err, "git diff is failed. cannot get deitals.")
-			}
-
-			return errors.Errorf("git diff is failed. message: `%s`", string(line))
+			return err
 		}
 
-		fmt.Println(stdout.String())
+		fmt.Println(result.stdout.String())
 		fmt.Printf("<-- %s\r\n", v)
 	}
 
@@ -75,45 +89,18 @@ func verify(verbose bool, args []string) error {
 	status := map[string]bool{}
 
 	for k, v := range cfg.Verifiers {
-		cmd := exec.Command("git", "diff", "--color", args[0], args[1], "--", v)
-
-		var (
-			stdout bytes.Buffer
-			stderr bytes.Buffer
-		)
-
-		cmd.Stdout = &stdout
-
-		cmd.Stderr = &stderr
-		if verbose {
-			log.Infof("execute `%s`", strings.Join(cmd.Args, " "))
-		}
-
-		err := cmd.Run()
+		result, err := executeGitCommand(verbose, "diff", "--color", args[0], args[1], "--", v)
 		if err != nil {
-			b := stderr.Bytes()
-			if verbose && len(b) != 0 {
-				errOut := colorable.NewColorableStderr()
-				errOut.Write(b)
-				fmt.Fprintln(errOut)
-			}
-
-			line, _, readErr := bufio.NewReader(bytes.NewReader(b)).ReadLine()
-			if readErr != nil {
-				return errors.Wrap(err, "git diff is failed. cannot get deitals.")
-			}
-
-			return errors.Errorf("git diff is failed. message: `%s`", string(line))
+			return err
 		}
 
-		b := stdout.Bytes()
-		if verbose && len(b) != 0 {
+		if verbose && result.stdout.Len() > 0 {
 			errOut := colorable.NewColorableStderr()
-			errOut.Write(stdout.Bytes())
+			errOut.Write(result.stdout.Bytes())
 			fmt.Fprintln(errOut)
 		}
 
-		status[k] = len(b) != 0
+		status[k] = result.stdout.Len() > 0
 	}
 
 	b, _ := json.Marshal(status)
@@ -122,12 +109,8 @@ func verify(verbose bool, args []string) error {
 	return nil
 }
 
-type Config struct {
-	Verifiers map[string]string
-}
-
 func parseConfig() (*Config, error) {
-	yml, err := ioutil.ReadFile(".verifydog.yml")
+	yml, err := os.ReadFile(".verifydog.yml")
 	if err != nil {
 		return nil, err
 	}
